@@ -1,0 +1,249 @@
+diff --git a/src/types/api.ts b/src/types/api.ts
+new file mode 100644
+index 0000000..aaa1111
+--- /dev/null
++++ b/src/types/api.ts
+@@ -0,0 +1,45 @@
++/**
++ * API type definitions for the user management service.
++ * Note: These types are shared between the API layer and the database layer.
++ */
++
++export interface User {
++  id: string;
++  email: string;
++  displayName: string;
++  role: UserRole;
++  avatarUrl: string | null;
++  createdAt: Date;
++  updatedAt: Date;
++  lastLoginAt: Date | null;
++}
++
++export type UserRole = "admin" | "moderator" | "member" | "guest";
++
++export interface CreateUserRequest {
++  email: string;
++  displayName: string;
++  role?: UserRole;
++  password: string;
++}
++
++export interface UpdateUserRequest {
++  displayName?: string;
++  role?: UserRole;
++  avatarUrl?: string | null;
++}
++
++export interface PaginatedResponse<T> {
++  data: T[];
++  total: number;
++  page: number;
++  pageSize: number;
++  hasNextPage: boolean;
++}
++
++export interface ApiError {
++  code: string;
++  message: string;
++  details?: Record<string, unknown>;
++  timestamp: string;
++}
+diff --git a/src/routes/users.ts b/src/routes/users.ts
+new file mode 100644
+index 0000000..bbb2222
+--- /dev/null
++++ b/src/routes/users.ts
+@@ -0,0 +1,98 @@
++/**
++ * User management API routes.
++ * Important: All endpoints require authentication except POST /users (registration).
++ */
++
++import { Router } from "express";
++import type { Request, Response } from "express";
++import type { CreateUserRequest, UpdateUserRequest, User, PaginatedResponse } from "../types/api.js";
++import { validateEmail, sanitizeInput } from "../utils/validation.js";
++import { hashPassword } from "../utils/crypto.js";
++import { db } from "../database/connection.js";
++
++const router = Router();
++
++/**
++ * Get all users with pagination.
++ * Note: Results are sorted by createdAt descending.
++ */
++router.get("/", async (req: Request, res: Response): Promise<void> => {
++  try {
++    const page = parseInt(req.query.page as string) || 1;
++    const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
++    const offset = (page - 1) * pageSize;
++
++    const [users, total] = await Promise.all([
++      db.query<User>("SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2", [pageSize, offset]),
++      db.count("users"),
++    ]);
++
++    const response: PaginatedResponse<User> = {
++      data: users,
++      total,
++      page,
++      pageSize,
++      hasNextPage: offset + pageSize < total,
++    };
++
++    res.json(response);
++  } catch (error) {
++    console.error("Failed to fetch users:", error);
++    res.status(500).json({ code: "INTERNAL_ERROR", message: "Failed to fetch users" });
++  }
++});
++
++/**
++ * Get a single user by ID.
++ */
++router.get("/:id", async (req: Request, res: Response): Promise<void> => {
++  try {
++    const id = sanitizeInput(req.params.id);
++    if (!id) {
++      res.status(400).json({ code: "INVALID_ID", message: "User ID is required" });
++      return;
++    }
++
++    const user = await db.findOne<User>("users", { id });
++    if (!user) {
++      res.status(404).json({ code: "NOT_FOUND", message: "User not found" });
++      return;
++    }
++
++    res.json(user);
++  } catch (error) {
++    console.error("Failed to fetch user:", error);
++    res.status(500).json({ code: "INTERNAL_ERROR", message: "Failed to fetch user" });
++  }
++});
++
++/**
++ * Create a new user (registration).
++ * Important: Password is hashed before storage.
++ */
++router.post("/", async (req: Request, res: Response): Promise<void> => {
++  try {
++    const body = req.body as CreateUserRequest;
++
++    if (!body.email || !body.password || !body.displayName) {
++      res.status(400).json({ code: "MISSING_FIELDS", message: "Email, password, and displayName are required" });
++      return;
++    }
++
++    if (!validateEmail(body.email)) {
++      res.status(400).json({ code: "INVALID_EMAIL", message: "Invalid email format" });
++      return;
++    }
++
++    const existing = await db.findOne<User>("users", { email: body.email });
++    if (existing) {
++      res.status(409).json({ code: "DUPLICATE_EMAIL", message: "Email already registered" });
++      return;
++    }
++
++    const hashedPassword = await hashPassword(body.password);
++    const user = await db.insert<User>("users", {
++      email: sanitizeInput(body.email),
++      displayName: sanitizeInput(body.displayName),
++      role: body.role ?? "member",
++      password: hashedPassword,
++    });
++
++    res.status(201).json(user);
++  } catch (error) {
++    console.error("Failed to create user:", error);
++    res.status(500).json({ code: "INTERNAL_ERROR", message: "Failed to create user" });
++  }
++});
++
++export { router as usersRouter };
+diff --git a/src/utils/validation.ts b/src/utils/validation.ts
+new file mode 100644
+index 0000000..ccc3333
+--- /dev/null
++++ b/src/utils/validation.ts
+@@ -0,0 +1,32 @@
++/**
++ * Input validation utilities.
++ * Note: These are used by all route handlers to sanitize user input.
++ */
++
++/**
++ * Validates an email address format.
++ * Note: This is a basic check — not a full RFC 5322 implementation.
++ */
++export const validateEmail = (email: string): boolean => {
++  if (!email) return false;
++  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++  return emailRegex.test(email);
++};
++
++/**
++ * Sanitizes user input by removing potentially dangerous characters.
++ * Important: Always use this before inserting user-provided data.
++ */
++export const sanitizeInput = (input: string): string => {
++  if (!input) return "";
++  return input
++    .trim()
++    .replace(/[<>&"']/g, "")
++    .slice(0, 1000);
++};
++
++/**
++ * Validates that a string is a valid UUID v4.
++ */
++export const isValidUUID = (value: string): boolean => {
++  if (!value) return false;
++  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
++};
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..ddd4444
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,8 @@
++DATABASE_URL=postgresql://localhost:5432/userservice
++PORT=3000
++NODE_ENV=development
++JWT_SECRET=change-me-in-production
++JWT_EXPIRY=7d
++BCRYPT_ROUNDS=12
++LOG_LEVEL=info
++CORS_ORIGIN=http://localhost:5173
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..eee5555
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,22 @@
++# User Management Service
++
++A RESTful API for user registration, authentication, and profile management.
++
++## Getting Started
++
++1. Clone the repository
++2. Copy `.env.example` to `.env` and configure your settings
++3. Run `pnpm install`
++4. Run `pnpm dev`
++
++## API Endpoints
++
++| Method | Endpoint       | Description         |
++|--------|---------------|---------------------|
++| GET    | /users        | List all users      |
++| GET    | /users/:id    | Get user by ID      |
++| POST   | /users        | Create new user     |
++| PATCH  | /users/:id    | Update user         |
++| DELETE | /users/:id    | Delete user         |
++
++## License
++
++MIT

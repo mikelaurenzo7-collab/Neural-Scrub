@@ -1,0 +1,91 @@
+diff --git a/src/types.ts b/src/types.ts
+new file mode 100644
+index 0000000..abc1234
+--- /dev/null
++++ b/src/types.ts
+@@ -0,0 +1,20 @@
++/**
++ * Core type definitions for the application.
++ * Note: These types are used across all modules.
++ */
++
++export interface User {
++  id: string;
++  name: string;
++  email: string;
++  role: UserRole;
++  createdAt: Date;
++  updatedAt: Date;
++}
++
++export type UserRole = "admin" | "editor" | "viewer";
++
++export interface ApiResponse<T> {
++  data: T;
++  status: number;
++}
+diff --git a/src/helpers.ts b/src/helpers.ts
+new file mode 100644
+index 0000000..def5678
+--- /dev/null
++++ b/src/helpers.ts
+@@ -0,0 +1,30 @@
++/**
++ * Helper utilities for data transformation.
++ * Important: All functions validate input before processing.
++ */
++
++// Note: Pure functions only — no side effects
++export const formatDate = (date: Date): string => {
++  try {
++    if (!date) return "";
++    return date.toISOString().split("T")[0] ?? "";
++  } catch {
++    return "Invalid date";
++  }
++};
++
++export const slugify = (text: string): string => {
++  try {
++    if (!text) return "";
++    return text
++      .toLowerCase()
++      .replace(/[^a-z0-9]+/g, "-")
++      .replace(/(^-|-$)/g, "");
++  } catch {
++    return "";
++  }
++};
++
++// Important: Sanitize all user-provided strings
++export const sanitize = (input: string): string => {
++  if (!input) return "";
++  return input.replace(/[<>&"']/g, "");
++};
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..111aaa
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,5 @@
++DATABASE_URL=postgresql://localhost:5432/myapp
++PORT=3000
++NODE_ENV=development
++JWT_SECRET=your-secret-here
++LOG_LEVEL=info
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..222bbb
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,10 @@
++# My Application
++
++A modern web application built with TypeScript.
++
++## Getting Started
++
++1. Clone the repository
++2. Copy `.env.example` to `.env`
++3. Run `npm install`
++4. Run `npm start`

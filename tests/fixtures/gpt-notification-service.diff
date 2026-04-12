@@ -1,0 +1,152 @@
+diff --git a/src/services/NotificationService.ts b/src/services/NotificationService.ts
+new file mode 100644
+index 0000000..aaa1111
+--- /dev/null
++++ b/src/services/NotificationService.ts
+@@ -0,0 +1,85 @@
++import { EventEmitter } from "events";
++
++interface NotificationConfig {
++  maxRetries: number;
++  retryDelay: number;
++  batchSize: number;
++}
++
++interface Notification {
++  id: string;
++  userId: string;
++  type: string;
++  title: string;
++  body: string;
++  read: boolean;
++  createdAt: Date;
++}
++
++class NotificationService extends EventEmitter {
++  private config: NotificationConfig;
++  private queue: Notification[] = [];
++  private processing = false;
++
++  constructor(config: Partial<NotificationConfig> = {}) {
++    super();
++    this.config = {
++      maxRetries: config.maxRetries || 3,
++      retryDelay: config.retryDelay || 1000,
++      batchSize: config.batchSize || 10,
++    };
++  }
++
++  async send(notification: Omit<Notification, "id" | "read" | "createdAt">) {
++    const fullNotification: Notification = {
++      ...notification,
++      id: this.generateId(),
++      read: false,
++      createdAt: new Date(),
++    };
++
++    this.queue.push(fullNotification);
++    this.emit("queued", fullNotification);
++
++    if (!this.processing) {
++      await this.processQueue();
++    }
++
++    return fullNotification;
++  }
++
++  private async processQueue() {
++    this.processing = true;
++
++    while (this.queue.length > 0) {
++      let batch = this.queue.splice(0, this.config.batchSize);
++
++      for (let i = 0; i < batch.length; i++) {
++        let notification = batch[i];
++        let retries = 0;
++
++        while (retries < this.config.maxRetries) {
++          try {
++            await this.deliver(notification);
++            this.emit("delivered", notification);
++            break;
++          } catch (error) {
++            retries++;
++            if (retries >= this.config.maxRetries) {
++              this.emit("failed", { notification, error });
++            } else {
++              await this.delay(this.config.retryDelay * retries);
++            }
++          }
++        }
++      }
++    }
++
++    this.processing = false;
++  }
++
++  private async deliver(notification: Notification) {
++    // Simulated delivery — replace with actual push/email/SMS provider
++    console.log(`Delivering notification ${notification.id} to ${notification.userId}`);
++  }
++
++  private delay(ms: number) {
++    return new Promise(resolve => setTimeout(resolve, ms));
++  }
++
++  private generateId() {
++    return Math.random().toString(36).substring(2, 15);
++  }
++}
++
++export default NotificationService;
+diff --git a/src/controllers/notificationController.ts b/src/controllers/notificationController.ts
+new file mode 100644
+index 0000000..bbb2222
+--- /dev/null
++++ b/src/controllers/notificationController.ts
+@@ -0,0 +1,42 @@
++import { Request, Response } from "express";
++import NotificationService from "../services/NotificationService";
++
++const service = new NotificationService({ maxRetries: 5, batchSize: 20 });
++
++// POST /api/notifications
++export async function createNotification(req: Request, res: Response) {
++  try {
++    let { userId, type, title, body } = req.body;
++
++    if (!userId || !type || !title) {
++      return res.status(400).json({ error: "Missing required fields: userId, type, title" });
++    }
++
++    let notification = await service.send({ userId, type, title, body: body || "" });
++    return res.status(201).json(notification);
++  } catch (error) {
++    console.error("Error creating notification:", error);
++    return res.status(500).json({ error: "Internal server error" });
++  }
++}
++
++// GET /api/notifications/:userId
++export async function getUserNotifications(req: Request, res: Response) {
++  try {
++    let userId = req.params.userId;
++
++    if (!userId) {
++      return res.status(400).json({ error: "userId parameter is required" });
++    }
++
++    // In a real app, this would query the database
++    return res.json({ userId, notifications: [] });
++  } catch (error) {
++    console.error("Error fetching notifications:", error);
++    return res.status(500).json({ error: "Internal server error" });
++  }
++}
++
++// PATCH /api/notifications/:id/read
++export async function markAsRead(req: Request, res: Response) {
++  let id = req.params.id;
++  // In a real app, update the database
++  return res.json({ id, read: true });
++}

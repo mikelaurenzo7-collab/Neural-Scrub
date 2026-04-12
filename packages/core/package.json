@@ -1,0 +1,23 @@
+{
+  "name": "@sentinel/core",
+  "version": "0.1.0",
+  "description": "Core analysis engine for Sentinel — AI model fingerprint detection",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.25.0",
+    "@babel/types": "^7.25.0"
+  },
+  "files": ["dist"]
+}

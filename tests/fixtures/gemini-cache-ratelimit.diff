@@ -1,0 +1,109 @@
+diff --git a/src/cache.ts b/src/cache.ts
+new file mode 100644
+index 0000000..aaa1111
+--- /dev/null
++++ b/src/cache.ts
+@@ -0,0 +1,58 @@
++const DEFAULT_TTL = 300000;
++const MAX_SIZE = 1000;
++
++type CacheEntry<T> = { value: T; expires: number };
++
++class LRUCache<T> {
++  private store = new Map<string, CacheEntry<T>>();
++  private maxSize: number;
++  private defaultTTL: number;
++
++  constructor(maxSize = MAX_SIZE, defaultTTL = DEFAULT_TTL) {
++    this.maxSize = maxSize;
++    this.defaultTTL = defaultTTL;
++  }
++
++  get(key: string): T | undefined {
++    const entry = this.store.get(key);
++    if (!entry) return undefined;
++    if (Date.now() > entry.expires) {
++      this.store.delete(key);
++      return undefined;
++    }
++    this.store.delete(key);
++    this.store.set(key, entry);
++    return entry.value;
++  }
++
++  set(key: string, value: T, ttl?: number): void {
++    if (this.store.has(key)) this.store.delete(key);
++    if (this.store.size >= this.maxSize) {
++      const oldest = this.store.keys().next().value;
++      if (oldest) this.store.delete(oldest);
++    }
++    this.store.set(key, { value, expires: Date.now() + (ttl ?? this.defaultTTL) });
++  }
++
++  delete(key: string): boolean {
++    return this.store.delete(key);
++  }
++
++  clear(): void {
++    this.store.clear();
++  }
++
++  size(): number {
++    return this.store.size;
++  }
++
++  prune(): number {
++    let removed = 0;
++    const now = Date.now();
++    for (const [key, entry] of this.store) {
++      if (now > entry.expires) {
++        this.store.delete(key);
++        removed++;
++      }
++    }
++    return removed;
++  }
++}
++
++export { LRUCache };
+diff --git a/src/middleware/rateLimiter.ts b/src/middleware/rateLimiter.ts
+new file mode 100644
+index 0000000..bbb2222
+--- /dev/null
++++ b/src/middleware/rateLimiter.ts
+@@ -0,0 +1,35 @@
++import { Request, Response, NextFunction } from "express";
++
++type RateLimitStore = Map<string, { count: number; resetAt: number }>;
++
++function createRateLimiter(windowMs = 60000, maxRequests = 100) {
++  const store: RateLimitStore = new Map();
++
++  setInterval(() => {
++    const now = Date.now();
++    for (const [key, val] of store) {
++      if (now > val.resetAt) store.delete(key);
++    }
++  }, windowMs);
++
++  return (req: Request, res: Response, next: NextFunction) => {
++    const key = req.ip ?? "unknown";
++    const now = Date.now();
++    const record = store.get(key);
++
++    if (!record || now > record.resetAt) {
++      store.set(key, { count: 1, resetAt: now + windowMs });
++      return next();
++    }
++
++    record.count++;
++    if (record.count > maxRequests) {
++      res.status(429).json({ error: "Too many requests" });
++      return;
++    }
++
++    next();
++  };
++}
++
++export { createRateLimiter };

@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "description": "Feature vector for Sentinel ML classifier — matches AIFeatures/ASTFeatures types",
+  "properties": {
+    "functionCount": { "type": "integer" },
+    "arrowFunctionCount": { "type": "integer" },
+    "functionDeclarationCount": { "type": "integer" },
+    "importCount": { "type": "integer" },
+    "tryCatchCount": { "type": "integer" },
+    "tryCatchPerFunction": { "type": "number" },
+    "commentDensity": { "type": "number" },
+    "constCount": { "type": "integer" },
+    "letCount": { "type": "integer" },
+    "varCount": { "type": "integer" },
+    "constOnly": { "type": "integer", "description": "1 if only const used, 0 otherwise" },
+    "guardClauseCount": { "type": "integer" },
+    "earlyReturnCount": { "type": "integer" },
+    "typeAnnotationCount": { "type": "integer" },
+    "interfaceCount": { "type": "integer" },
+    "typeAliasCount": { "type": "integer" },
+    "jsdocCount": { "type": "integer" },
+    "isNewFile": { "type": "integer", "description": "1 if file is new, 0 if modified" },
+    "addedLines": { "type": "integer" },
+    "removedLines": { "type": "integer" }
+  },
+  "required": [
+    "functionCount", "arrowFunctionCount", "functionDeclarationCount",
+    "importCount", "tryCatchCount", "tryCatchPerFunction",
+    "commentDensity", "constCount", "letCount", "varCount", "constOnly",
+    "guardClauseCount", "earlyReturnCount", "typeAnnotationCount",
+    "interfaceCount", "typeAliasCount", "jsdocCount",
+    "isNewFile", "addedLines", "removedLines"
+  ]
+}

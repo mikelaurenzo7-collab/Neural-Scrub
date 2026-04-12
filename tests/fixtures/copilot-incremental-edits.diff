@@ -1,0 +1,73 @@
+diff --git a/src/utils/auth.ts b/src/utils/auth.ts
+index aaa1111..bbb2222 100644
+--- a/src/utils/auth.ts
++++ b/src/utils/auth.ts
+@@ -1,8 +1,14 @@
+ import jwt from "jsonwebtoken";
++import { Request, Response, NextFunction } from "express";
+ 
+ const SECRET = process.env.JWT_SECRET || "dev-secret";
+ 
+-export function createToken(userId: string) {
+-  return jwt.sign({ sub: userId }, SECRET, { expiresIn: "7d" });
++export function createToken(userId: string, role: string) {
++  return jwt.sign({ sub: userId, role }, SECRET, { expiresIn: "7d" });
++}
++
++export function verifyToken(token: string) {
++  return jwt.verify(token, SECRET) as { sub: string; role: string };
+ }
+ 
+diff --git a/src/routes/posts.ts b/src/routes/posts.ts
+index ccc3333..ddd4444 100644
+--- a/src/routes/posts.ts
++++ b/src/routes/posts.ts
+@@ -5,10 +5,22 @@ const router = Router();
+ 
+ router.get("/", async (req, res) => {
+   const posts = await db.query("SELECT * FROM posts ORDER BY created_at DESC LIMIT 50");
+-  res.json(posts);
++  res.json({ data: posts, count: posts.length });
+ });
+ 
+ router.get("/:id", async (req, res) => {
+-  const post = await db.query("SELECT * FROM posts WHERE id = $1", [req.params.id]);
+-  res.json(post[0]);
++  const post = await db.findOne("posts", { id: req.params.id });
++  if (!post) {
++    return res.status(404).json({ error: "Post not found" });
++  }
++  res.json(post);
++});
++
++router.post("/", async (req, res) => {
++  const { title, body, authorId } = req.body;
++  if (!title || !authorId) {
++    return res.status(400).json({ error: "title and authorId required" });
++  }
++  const post = await db.insert("posts", { title, body: body || "", authorId });
++  res.status(201).json(post);
+ });
+diff --git a/src/components/PostList.tsx b/src/components/PostList.tsx
+index eee5555..fff6666 100644
+--- a/src/components/PostList.tsx
++++ b/src/components/PostList.tsx
+@@ -1,9 +1,15 @@
+-import React from "react";
++import React, { useEffect, useState } from "react";
+ 
+-export function PostList({ posts }) {
++export function PostList() {
++  const [posts, setPosts] = useState([]);
++
++  useEffect(() => {
++    fetch("/api/posts").then(r => r.json()).then(d => setPosts(d.data));
++  }, []);
++
+   return (
+     <ul>
+-      {posts.map(p => <li key={p.id}>{p.title}</li>)}
++      {posts.map((p: any) => <li key={p.id}><a href={`/posts/${p.id}`}>{p.title}</a></li>)}
+     </ul>
+   );
+ }

@@ -1,0 +1,242 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..aaa1111
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,42 @@
++name: CI
++
++on:
++  push:
++    branches: [main]
++  pull_request:
++    branches: [main]
++
++jobs:
++  build-and-test:
++    runs-on: ubuntu-latest
++    strategy:
++      matrix:
++        node-version: [18, 20, 22]
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with:
++          node-version: ${{ matrix.node-version }}
++          cache: "pnpm"
++      - uses: pnpm/action-setup@v2
++        with:
++          version: 9
++      - run: pnpm install --frozen-lockfile
++      - run: pnpm build
++      - run: pnpm test
++      - run: pnpm lint
++
++  docker:
++    needs: build-and-test
++    runs-on: ubuntu-latest
++    if: github.ref == 'refs/heads/main'
++    steps:
++      - uses: actions/checkout@v4
++      - uses: docker/setup-buildx-action@v3
++      - uses: docker/build-push-action@v5
++        with:
++          context: .
++          push: false
++          tags: taskboard:latest
++          cache-from: type=gha
++          cache-to: type=gha,mode=max
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..bbb2222
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,20 @@
++FROM node:20-alpine AS builder
++WORKDIR /app
++COPY package.json pnpm-lock.yaml ./
++RUN corepack enable && pnpm install --frozen-lockfile
++COPY . .
++RUN pnpm build
++
++FROM node:20-alpine
++WORKDIR /app
++COPY --from=builder /app/dist ./dist
++COPY --from=builder /app/node_modules ./node_modules
++COPY --from=builder /app/package.json ./
++EXPOSE 3000
++CMD ["node", "dist/index.js"]
++
++HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
++  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
++
++LABEL org.opencontainers.image.source="https://github.com/example/taskboard"
++LABEL org.opencontainers.image.description="TaskBoard API"
+diff --git a/src/app.ts b/src/app.ts
+new file mode 100644
+index 0000000..ccc3333
+--- /dev/null
++++ b/src/app.ts
+@@ -0,0 +1,52 @@
++import express from "express";
++import cors from "cors";
++import helmet from "helmet";
++import compression from "compression";
++import { taskRouter } from "./routes/tasks";
++import { boardRouter } from "./routes/boards";
++import { healthRouter } from "./routes/health";
++import { errorHandler } from "./middleware/errorHandler";
++import { requestLogger } from "./middleware/requestLogger";
++import { connectDatabase } from "./database/connection";
++
++async function bootstrap() {
++  await connectDatabase();
++
++  const app = express();
++  const port = parseInt(process.env.PORT || "3000", 10);
++
++  app.use(helmet());
++  app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
++  app.use(compression());
++  app.use(express.json({ limit: "10mb" }));
++  app.use(requestLogger);
++
++  app.use("/health", healthRouter);
++  app.use("/api/tasks", taskRouter);
++  app.use("/api/boards", boardRouter);
++
++  app.use(errorHandler);
++
++  app.listen(port, () => {
++    console.log(`TaskBoard API running on port ${port}`);
++  });
++}
++
++bootstrap().catch(err => {
++  console.error("Failed to start:", err);
++  process.exit(1);
++});
+diff --git a/src/routes/tasks.ts b/src/routes/tasks.ts
+new file mode 100644
+index 0000000..ddd4444
+--- /dev/null
++++ b/src/routes/tasks.ts
+@@ -0,0 +1,58 @@
++import { Router, Request, Response } from "express";
++import { db } from "../database/connection";
++
++const taskRouter = Router();
++
++taskRouter.get("/", async (req: Request, res: Response) => {
++  const boardId = req.query.boardId as string;
++  let query = "SELECT * FROM tasks";
++  let params: string[] = [];
++
++  if (boardId) {
++    query += " WHERE board_id = $1";
++    params.push(boardId);
++  }
++
++  query += " ORDER BY position ASC";
++  const tasks = await db.query(query, params);
++  res.json(tasks);
++});
++
++taskRouter.get("/:id", async (req: Request, res: Response) => {
++  const task = await db.query("SELECT * FROM tasks WHERE id = $1", [req.params.id]);
++  if (!task.length) return res.status(404).json({ error: "Task not found" });
++  res.json(task[0]);
++});
++
++taskRouter.post("/", async (req: Request, res: Response) => {
++  const { title, description, boardId, assigneeId, priority } = req.body;
++  if (!title || !boardId) return res.status(400).json({ error: "title and boardId required" });
++
++  const maxPos = await db.query("SELECT COALESCE(MAX(position), 0) + 1 as pos FROM tasks WHERE board_id = $1", [boardId]);
++  const result = await db.query(
++    "INSERT INTO tasks (title, description, board_id, assignee_id, priority, position) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
++    [title, description || "", boardId, assigneeId || null, priority || "medium", maxPos[0].pos]
++  );
++  res.status(201).json(result[0]);
++});
++
++taskRouter.patch("/:id", async (req: Request, res: Response) => {
++  const updates = req.body;
++  const fields = Object.keys(updates);
++  if (!fields.length) return res.status(400).json({ error: "No fields to update" });
++
++  const setClauses = fields.map((f, i) => `${f} = $${i + 2}`);
++  const values = [req.params.id, ...fields.map(f => updates[f])];
++  const result = await db.query(
++    `UPDATE tasks SET ${setClauses.join(", ")}, updated_at = NOW() WHERE id = $1 RETURNING *`,
++    values
++  );
++  if (!result.length) return res.status(404).json({ error: "Task not found" });
++  res.json(result[0]);
++});
++
++taskRouter.delete("/:id", async (req: Request, res: Response) => {
++  const result = await db.query("DELETE FROM tasks WHERE id = $1 RETURNING id", [req.params.id]);
++  if (!result.length) return res.status(404).json({ error: "Task not found" });
++  res.json({ deleted: true });
++});
++
++export { taskRouter };
+diff --git a/src/middleware/errorHandler.ts b/src/middleware/errorHandler.ts
+new file mode 100644
+index 0000000..eee5555
+--- /dev/null
++++ b/src/middleware/errorHandler.ts
+@@ -0,0 +1,15 @@
++import { Request, Response, NextFunction } from "express";
++
++export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
++  console.error(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${err.message}`);
++  res.status(500).json({ error: "Internal server error" });
++}
++
++export function requestLogger(req: Request, res: Response, next: NextFunction) {
++  const start = Date.now();
++  res.on("finish", () => {
++    const duration = Date.now() - start;
++    console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
++  });
++  next();
++}
+diff --git a/docker-compose.yml b/docker-compose.yml
+new file mode 100644
+index 0000000..fff6666
+--- /dev/null
++++ b/docker-compose.yml
+@@ -0,0 +1,25 @@
++version: "3.8"
++services:
++  app:
++    build: .
++    ports:
++      - "3000:3000"
++    environment:
++      DATABASE_URL: postgresql://postgres:postgres@db:5432/taskboard
++      NODE_ENV: production
++    depends_on:
++      db:
++        condition: service_healthy
++
++  db:
++    image: postgres:16-alpine
++    environment:
++      POSTGRES_DB: taskboard
++      POSTGRES_USER: postgres
++      POSTGRES_PASSWORD: postgres
++    ports:
++      - "5432:5432"
++    volumes:
++      - pgdata:/var/lib/postgresql/data
++    healthcheck:
++      test: ["CMD-SHELL", "pg_isready -U postgres"]
++      interval: 10s
++      timeout: 5s
++      retries: 5
++
++volumes:
++  pgdata:
