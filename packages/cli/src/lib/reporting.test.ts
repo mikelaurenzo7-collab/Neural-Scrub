@@ -25,4 +25,16 @@ describe("reporting git arguments", () => {
       "--no-color",
     ]);
   });
+
+  it("builds git log arguments without a since filter", () => {
+    const repoPath = "/tmp/repo";
+
+    expect(buildGitLogArgs(repoPath)).toEqual([
+      "-C",
+      resolve(repoPath),
+      "log",
+      "-p",
+      "--no-color",
+    ]);
+  });
 });
