@@ -2,6 +2,7 @@ import type {
   DiffFile,
   FileAnalysis,
   Evidence,
+  Recommendation,
   SentinelReport,
   ReportSummary,
   SentinelScore,
@@ -104,7 +105,93 @@ function buildSummary(analyses: FileAnalysis[]): ReportSummary {
     unpromptedChanges: allUnprompted,
     riskScore: overallRisk(allUnprompted),
     evidenceTrail,
+    recommendations: buildRecommendations(allUnprompted, modelBreakdown, evidenceTrail),
   };
+}
+
+function buildRecommendations(
+  unpromptedChanges: FileAnalysis["unpromptedChanges"],
+  modelBreakdown: SentinelScore[],
+  evidenceTrail: Evidence[],
+): Recommendation[] {
+  const recommendations: Recommendation[] = [];
+  const highRiskFiles = uniqueFiles(unpromptedChanges.filter((c) => c.risk === "high").map((c) => c.file));
+  const dependencyFiles = uniqueFiles(
+    unpromptedChanges.filter((c) => c.description.startsWith("Added ")).map((c) => c.file),
+  );
+  const infrastructureFiles = uniqueFiles(
+    unpromptedChanges.filter((c) => c.description.includes("Infrastructure/CI")).map((c) => c.file),
+  );
+  const scopedExpansionFiles = uniqueFiles(
+    unpromptedChanges.filter((c) => c.risk !== "high").map((c) => c.file),
+  );
+  const dominant = modelBreakdown[0] ?? null;
+
+  if (highRiskFiles.length > 0) {
+    recommendations.push({
+      priority: "high",
+      title: "Require explicit review for high-risk scope expansion",
+      description: "Block merge until each high-risk file is mapped to a requested task or explicitly approved.",
+      affectedFiles: highRiskFiles,
+      rationale: "High-risk unprompted changes can alter infrastructure, dependencies, or supply-chain posture.",
+    });
+  }
+
+  if (dependencyFiles.length > 0) {
+    recommendations.push({
+      priority: "high",
+      title: "Audit newly added dependencies",
+      description: "Verify package reputation, license, transitive dependency risk, and whether the dependency is necessary.",
+      affectedFiles: dependencyFiles,
+      rationale: "New packages expand the attack surface and can introduce supply-chain vulnerabilities.",
+    });
+  }
+
+  if (infrastructureFiles.length > 0) {
+    recommendations.push({
+      priority: "high",
+      title: "Validate infrastructure and CI changes in isolation",
+      description: "Review permissions, secrets access, triggers, and deployment impact before enabling these files.",
+      affectedFiles: infrastructureFiles,
+      rationale: "Infrastructure changes can affect build integrity, deployment behavior, and credential exposure.",
+    });
+  }
+
+  if (scopedExpansionFiles.length > 0) {
+    recommendations.push({
+      priority: "medium",
+      title: "Trim or document lower-risk unprompted additions",
+      description: "Keep files only when they directly support the requested change; otherwise defer them to a follow-up.",
+      affectedFiles: scopedExpansionFiles,
+      rationale: "Documentation, helper, and type additions are usually low-friction but can still hide scope creep.",
+    });
+  }
+
+  if (dominant && dominant.confidence >= 0.5) {
+    recommendations.push({
+      priority: "medium",
+      title: "Correlate attribution with session context",
+      description: "Compare the dominant model signal against prompts, editor history, and commit metadata.",
+      affectedFiles: uniqueFiles(evidenceTrail.map((e) => e.file)),
+      rationale: `${dominant.displayName} is the strongest detected fingerprint at ${(dominant.confidence * 100).toFixed(1)}% confidence.`,
+    });
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push({
+      priority: "low",
+      title: "Preserve baseline evidence for future comparisons",
+      description: "Export the JSON report and compare it with future diffs to spot attribution or scope shifts over time.",
+      affectedFiles: [],
+      rationale: "No strong risk signals were detected, so the report is most useful as a historical baseline.",
+    });
+  }
+
+  return recommendations;
+}
+
+function uniqueFiles(files: string[]): string[] {
+  return [...new Set(files)].sort();
 }
 
 function getDisplayName(modelId: ModelId): string {
