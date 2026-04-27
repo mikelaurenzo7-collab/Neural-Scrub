@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, resolve } from "node:path";
@@ -28,12 +28,10 @@ export async function generateReport(options: AnalyzeOptions & { repoPath: strin
     const diffPath = resolve(options.diff);
     rawDiff = await readFile(diffPath, "utf-8");
   } else {
-    const absPath = resolve(options.repoPath);
-    const sinceArg = options.since ? parseSince(options.since) : "";
-    const cmd = sinceArg
-      ? `git -C "${absPath}" log ${sinceArg} -p --no-color`
-      : `git -C "${absPath}" log -p --no-color`;
-    rawDiff = execSync(cmd, { encoding: "utf-8", maxBuffer: 50 * 1024 * 1024 });
+    rawDiff = execFileSync("git", buildGitLogArgs(options.repoPath, options.since), {
+      encoding: "utf-8",
+      maxBuffer: 50 * 1024 * 1024,
+    });
   }
 
   if (!rawDiff.trim()) {
@@ -87,9 +85,19 @@ export function parseSince(since: string): string {
     };
     const unitKey = match[2] ?? "d";
     const unit = unitMap[unitKey] ?? "days";
-    return `--since="${num} ${unit} ago"`;
+    return `--since=${num} ${unit} ago`;
   }
-  return `--since="${since}"`;
+  return `--since=${since}`;
+}
+
+/** @internal Exported for focused unit coverage; not part of the CLI public API. */
+export function buildGitLogArgs(repoPath: string, since?: string): string[] {
+  const args = ["-C", resolve(repoPath), "log"];
+  if (since) {
+    args.push(parseSince(since));
+  }
+  args.push("-p", "--no-color");
+  return args;
 }
 
 function expandHome(inputPath: string): string {
