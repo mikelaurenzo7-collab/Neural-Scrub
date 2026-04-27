@@ -90,6 +90,7 @@ export function parseSince(since: string): string {
   return `--since=${since}`;
 }
 
+/** @internal Exported for focused unit coverage; not part of the CLI public API. */
 export function buildGitLogArgs(repoPath: string, since?: string): string[] {
   const args = ["-C", resolve(repoPath), "log"];
   if (since) {
