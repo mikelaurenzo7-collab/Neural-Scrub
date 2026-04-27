@@ -63,6 +63,19 @@ export function formatText(report: SentinelReport): string {
     lines.push("");
   }
 
+  // Recommendations
+  if (report.summary.recommendations.length > 0) {
+    lines.push("─── Recommended Next Actions ──────────────────────────────");
+    for (const rec of report.summary.recommendations) {
+      lines.push(`  [${rec.priority.toUpperCase()}] ${rec.title}`);
+      lines.push(`       ${rec.description}`);
+      if (rec.affectedFiles.length > 0) {
+        lines.push(`       Files: ${rec.affectedFiles.join(", ")}`);
+      }
+    }
+    lines.push("");
+  }
+
   // Evidence trail
   if (report.summary.evidenceTrail.length > 0) {
     lines.push("─── Evidence Trail ────────────────────────────────────────");

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDiff, buildReport } from "../index.js";
+import { parseDiff, buildReport, formatMarkdown, formatText } from "../index.js";
 
 const CLAUDE_FIXTURE = `diff --git a/src/types.ts b/src/types.ts
 new file mode 100644
@@ -89,5 +89,24 @@ describe("scoring engine (via buildReport)", () => {
     expect(report.generatedAt).toBeTruthy();
     // Should be valid ISO string
     expect(() => new Date(report.generatedAt)).not.toThrow();
+  });
+
+  it("adds actionable recommendations to the report summary", () => {
+    const files = parseDiff(CLAUDE_FIXTURE);
+    const report = buildReport(files, "/test/repo");
+
+    expect(report.summary.recommendations.length).toBeGreaterThan(0);
+    expect(report.summary.recommendations.map((r) => r.title)).toContain(
+      "Trim or document lower-risk unprompted additions",
+    );
+    expect(report.summary.recommendations.some((r) => r.affectedFiles.includes("src/helpers.ts"))).toBe(true);
+  });
+
+  it("renders recommendations in text and markdown reports", () => {
+    const files = parseDiff(CLAUDE_FIXTURE);
+    const report = buildReport(files, "/test/repo");
+
+    expect(formatText(report)).toContain("Recommended Next Actions");
+    expect(formatMarkdown(report)).toContain("## Recommended Next Actions");
   });
 });

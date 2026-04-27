@@ -67,6 +67,19 @@ export function formatMarkdown(report: SentinelReport): string {
     lines.push("");
   }
 
+  // Recommendations
+  if (report.summary.recommendations.length > 0) {
+    lines.push("## Recommended Next Actions");
+    lines.push("");
+    lines.push("| Priority | Action | Affected Files | Rationale |");
+    lines.push("|----------|--------|----------------|-----------|");
+    for (const rec of report.summary.recommendations) {
+      const files = rec.affectedFiles.length > 0 ? rec.affectedFiles.map((file) => `\`${file}\``).join("<br>") : "—";
+      lines.push(`| ${rec.priority} | **${rec.title}**<br>${rec.description} | ${files} | ${rec.rationale} |`);
+    }
+    lines.push("");
+  }
+
   // Evidence
   if (report.summary.evidenceTrail.length > 0) {
     lines.push("## Evidence Trail");

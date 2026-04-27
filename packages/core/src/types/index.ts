@@ -178,6 +178,14 @@ export interface Evidence {
   explanation: string;
 }
 
+export interface Recommendation {
+  priority: RiskLevel;
+  title: string;
+  description: string;
+  affectedFiles: string[];
+  rationale: string;
+}
+
 // ─── Report ──────────────────────────────────────────────────────
 
 export interface FileAnalysis {
@@ -205,6 +213,7 @@ export interface ReportSummary {
   unpromptedChanges: UnpromptedChange[];
   riskScore: RiskLevel;
   evidenceTrail: Evidence[];
+  recommendations: Recommendation[];
 }
 
 // ─── ML Adapter ──────────────────────────────────────────────────
